@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local project state
+.agents/
+.cracklabeling/
+
+# Local data and outputs
+crack_images/
+crack_masks/
+
+# Model weights and checkpoints
+model/
+*.pth
+*.pt
+*.ckpt
+*.onnx
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
