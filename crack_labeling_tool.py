@@ -19,6 +19,10 @@ from skimage.morphology import remove_small_objects
 from albumentations import Normalize, Compose
 from albumentations.pytorch import ToTensorV2
 from skimage.morphology import skeletonize
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError:
+    Image = ImageDraw = ImageFont = None
 
 
 # ============================
@@ -40,7 +44,76 @@ WINDOW_CTRL = "Control (All Params Visible)"
 WINDOW_INFO = "Info / Shortcuts / Edit Mode"
 
 VIEW_SCALE = 1.0  # 원본 100% 기본
+MAIN_VIEW_W = 1680
+MAIN_VIEW_H = 980
 SAVE_EMPTY_ON_SKIP = False
+
+TB_SIGMA = "01 Sigma max"
+TB_BLACK = "02 Black ridges"
+TB_CLAHE_ON = "03 CLAHE on"
+TB_CLAHE_CLIP = "04 CLAHE clip x10"
+TB_CLAHE_TILE = "05 CLAHE tile"
+TB_HYST_LOW = "06 Hyst low x1000"
+TB_HYST_HIGH = "07 Hyst high x1000"
+TB_MIN_SIZE = "08 Min object size"
+TB_CLOSE_ON = "09 Morph close on"
+TB_CLOSE_K = "10 Close kernel"
+TB_ALPHA = "11 Overlay alpha"
+TB_BRUSH = "12 Brush px"
+TB_EDIT_MODE = "13 Edit mode"
+TB_ZOOM_MODE = "14 Zoom pan"
+TB_USE_MODEL = "15 Model on"
+TB_MODEL_TYPE = "16 Model type"
+TB_MODEL_THR = "17 Model thr x1000"
+TB_SKEL_ON = "18 Skeleton on"
+TB_SKEL_THICK = "19 Skeleton thick"
+TB_HELP_ITEM = "20 Help item"
+
+HELP_ITEMS = [
+    ("전체", "번호가 붙은 조절 항목을 선택하면 이 창에서 한글 설명을 볼 수 있습니다."),
+    ("Sigma max", "Sato 필터가 확인할 균열 선의 최대 두께 범위입니다. 값이 클수록 더 굵은 선 구조까지 찾습니다."),
+    ("Black ridges", "어두운 균열을 찾을지 선택합니다. 포장 균열처럼 배경보다 어두운 선이면 1이 보통 맞습니다."),
+    ("CLAHE on", "명암 대비 향상 전처리 사용 여부입니다. 균열과 배경 대비가 약할 때 켜면 도움이 됩니다."),
+    ("CLAHE clip", "CLAHE 대비 강화 정도입니다. 너무 높으면 노이즈도 같이 강해질 수 있습니다."),
+    ("CLAHE tile", "CLAHE를 적용할 지역 블록 크기입니다. 지역별 밝기 차이가 큰 이미지에서 조절합니다."),
+    ("Hyst low", "Sato 결과의 약한 후보를 포함할 낮은 임계값입니다. 낮추면 더 많이 잡히지만 노이즈도 늘 수 있습니다."),
+    ("Hyst high", "확실한 균열 후보를 정하는 높은 임계값입니다. 높이면 더 엄격하게 잡습니다."),
+    ("Min object size", "작은 잡음을 제거하는 최소 객체 크기입니다. 값이 크면 작은 점/짧은 선이 사라집니다."),
+    ("Morph close", "끊어진 균열 조각을 이어주는 후처리 사용 여부입니다."),
+    ("Close kernel", "Morph close의 커널 크기입니다. 값이 클수록 더 멀리 떨어진 조각까지 이어질 수 있습니다."),
+    ("Overlay alpha", "오른쪽 미리보기에서 마스크 색이 보이는 진하기입니다. 저장 마스크에는 영향 없습니다."),
+    ("Brush px", "수동 편집 브러쉬 선 두께입니다. 1이면 실제 1픽셀 선으로 그립니다."),
+    ("Edit mode", "0은 지우기/복원, 1은 흰색 균열 직접 그리기 모드입니다. D 키로 전환할 수 있습니다."),
+    ("Zoom pan", "1이면 휠로 확대/축소, 오른쪽 드래그로 화면 이동합니다. V 키로 전환할 수 있습니다."),
+    ("Model on", "모델 예측 마스크를 Sato 필터 결과와 함께 사용할지 선택합니다. M 키로 전환할 수 있습니다."),
+    ("Model type", "0은 HC-Unet++, 1은 UNet++ 모델을 사용합니다."),
+    ("Model threshold", "모델 sigmoid 확률을 마스크로 바꾸는 임계값입니다. 낮추면 더 많이 검출됩니다."),
+    ("Skeleton on", "저장 전 필터/모델 결과를 중심선 형태로 얇게 만드는 옵션입니다."),
+    ("Skeleton thick", "Skeleton 결과의 두께입니다. 직접 그린 선은 이 옵션과 별도로 브러쉬 두께를 유지합니다."),
+]
+
+LEGACY_DEFAULTS = {
+    TB_SIGMA: 4,
+    TB_BLACK: 1,
+    TB_CLAHE_ON: 1,
+    TB_CLAHE_CLIP: 20,
+    TB_CLAHE_TILE: 4,
+    TB_HYST_LOW: 100,
+    TB_HYST_HIGH: 200,
+    TB_MIN_SIZE: 30,
+    TB_CLOSE_ON: 0,
+    TB_CLOSE_K: 1,
+    TB_ALPHA: 45,
+    TB_BRUSH: 3,
+    TB_EDIT_MODE: 0,
+    TB_ZOOM_MODE: 0,
+    TB_USE_MODEL: 0,
+    TB_MODEL_TYPE: 1,
+    TB_MODEL_THR: 500,
+    TB_SKEL_ON: 0,
+    TB_SKEL_THICK: 1,
+    TB_HELP_ITEM: 0,
+}
 # ============================
 
 # ----------------------------
@@ -330,6 +403,18 @@ def model_infer_config(model_type):
         use_gaussian=True,
     )
 
+def get_korean_font(size=18):
+    if ImageFont is None:
+        return None
+    for path in (
+        "C:/Windows/Fonts/malgun.ttf",
+        "C:/Windows/Fonts/gulim.ttc",
+        "C:/Windows/Fonts/arial.ttf",
+    ):
+        if os.path.exists(path):
+            return ImageFont.truetype(path, size)
+    return ImageFont.load_default()
+
 # ----------------------------
 # 앱
 # ----------------------------
@@ -411,6 +496,16 @@ class App:
 
         # 보기 배율 상태
         self.view_scale = VIEW_SCALE
+        self.pan_x = 0
+        self.pan_y = 0
+        self._panning = False
+        self._pan_start_mouse = None
+        self._pan_start_offset = None
+        self._last_scaled_panel_shape = None
+        self._help_hit_rows = []
+        self.font_title = get_korean_font(22)
+        self.font_text = get_korean_font(17)
+        self.font_small = get_korean_font(15)
 
         # UI
         self.setup_windows()
@@ -480,95 +575,94 @@ class App:
             "Controls:\n"
             "  Mouse: EditMode=Erase → L-drag=지움, R-drag=복원\n"
             "         EditMode=Draw  → L-drag=흰색 크랙 그리기, R-drag=직접 그린 부분 지움\n"
+            "         Zoom/Pan ON    → Wheel=확대/축소, R-drag=화면 이동\n"
             "  Keys : S=Save&Next  N=Next  P=Prev  Z=Undo  C=Clear manual edits\n"
-            "         M=Toggle Model  D=Toggle Draw/Erase  H=Help  Q/Esc=Quit\n"
+            "         M=Toggle Model  D=Toggle Draw/Erase  V=Toggle Zoom/Pan  H=Help  Q/Esc=Quit\n"
             "Trackbars:\n"
-            "  SigmaMax (1..8) / BlackRidges (0/1)\n"
-            "  CLAHE enable (0/1), CLAHE clip*10 (0.1~10.0), CLAHE tile k (4,6,...)\n"
-            "  Hysteresis Low/High *1000, MinSize, Morph Close, CloseK\n"
-            "  Overlay alpha, Brush size, Edit Mode, Use Model, Model Thr*1000\n"
-            "  View scale % (25~200)\n"
+            "  01~19: filter/model/edit controls\n"
+            "  20 Help item: select a Korean description in the Info window\n"
+            "  You can also click numbered rows in the Info window.\n"
         )
         self.show_status(help_text, 0)
 
     # ---------- 창/트랙바 ----------
     def setup_windows(self):
         cv2.namedWindow(WINDOW_MAIN, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(WINDOW_MAIN, 1680, 980)
+        cv2.resizeWindow(WINDOW_MAIN, MAIN_VIEW_W, MAIN_VIEW_H)
 
         cv2.namedWindow(WINDOW_CTRL, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(WINDOW_CTRL, 380, 560)
+        cv2.resizeWindow(WINDOW_CTRL, 760, 760)
         cv2.moveWindow(WINDOW_CTRL, 40, 900)
 
         cv2.namedWindow(WINDOW_INFO, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(WINDOW_INFO, 520, 360)
-        cv2.moveWindow(WINDOW_INFO, 430, 900)
+        cv2.resizeWindow(WINDOW_INFO, 780, 520)
+        cv2.moveWindow(WINDOW_INFO, 830, 900)
 
         self.show_help()
 
-        cv2.createTrackbar("SigmaMax (1..8)",            WINDOW_CTRL, 4,   8,    self.make_cb("SigmaMax (1..8)"))
-        cv2.createTrackbar("BlackRidges (0/1)",          WINDOW_CTRL, 1,   1,    self.make_cb("BlackRidges (0/1)"))
-        cv2.createTrackbar("CLAHE enable (0/1)",         WINDOW_CTRL, 1,   1,    self.make_cb("CLAHE enable (0/1)"))
-        cv2.createTrackbar("CLAHE clip *10 (0.1~10.0)",  WINDOW_CTRL, 20,  100,  self.make_cb("CLAHE clip*10"))
-        cv2.createTrackbar("CLAHE tile k (4,6,...)",     WINDOW_CTRL, 4,   20,   self.make_cb("CLAHE tile k"))
+        cv2.createTrackbar(TB_SIGMA,      WINDOW_CTRL, LEGACY_DEFAULTS[TB_SIGMA],      8,    self.make_cb(TB_SIGMA))
+        cv2.createTrackbar(TB_BLACK,      WINDOW_CTRL, LEGACY_DEFAULTS[TB_BLACK],      1,    self.make_cb(TB_BLACK))
+        cv2.createTrackbar(TB_CLAHE_ON,   WINDOW_CTRL, LEGACY_DEFAULTS[TB_CLAHE_ON],   1,    self.make_cb(TB_CLAHE_ON))
+        cv2.createTrackbar(TB_CLAHE_CLIP, WINDOW_CTRL, LEGACY_DEFAULTS[TB_CLAHE_CLIP], 100,  self.make_cb(TB_CLAHE_CLIP))
+        cv2.createTrackbar(TB_CLAHE_TILE, WINDOW_CTRL, LEGACY_DEFAULTS[TB_CLAHE_TILE], 20,   self.make_cb(TB_CLAHE_TILE))
 
-        cv2.createTrackbar("Hysteresis Low *1000",       WINDOW_CTRL, 100, 1000, self.make_cb("Hysteresis Low*1000"))
-        cv2.createTrackbar("Hysteresis High *1000",      WINDOW_CTRL, 200, 1000, self.make_cb("Hysteresis High*1000"))
+        cv2.createTrackbar(TB_HYST_LOW,   WINDOW_CTRL, LEGACY_DEFAULTS[TB_HYST_LOW],   1000, self.make_cb(TB_HYST_LOW))
+        cv2.createTrackbar(TB_HYST_HIGH,  WINDOW_CTRL, LEGACY_DEFAULTS[TB_HYST_HIGH],  1000, self.make_cb(TB_HYST_HIGH))
 
-        cv2.createTrackbar("MinSize (remove_small_objects)", WINDOW_CTRL, 30, 5000, self.make_cb("MinSize"))
-        cv2.createTrackbar("Morph Close enable (0/1)",   WINDOW_CTRL, 0,   1,    self.make_cb("Morph Close enable"))
-        cv2.createTrackbar("CloseK (odd 3..11)",         WINDOW_CTRL, 1,   5,    self.make_cb("CloseK (odd 3..11)"))
-        cv2.createTrackbar("Overlay alpha (0..100)",     WINDOW_CTRL, 45,  100,  self.make_cb("Overlay alpha"))
-        cv2.createTrackbar("Brush size px",              WINDOW_CTRL, 3,   80,   self.make_cb("Brush size px"))
-        cv2.createTrackbar("Edit Mode (0=Erase,1=Draw)", WINDOW_CTRL, 0,   1,    self.make_cb("Edit Mode"))
+        cv2.createTrackbar(TB_MIN_SIZE,   WINDOW_CTRL, LEGACY_DEFAULTS[TB_MIN_SIZE],   5000, self.make_cb(TB_MIN_SIZE))
+        cv2.createTrackbar(TB_CLOSE_ON,   WINDOW_CTRL, LEGACY_DEFAULTS[TB_CLOSE_ON],   1,    self.make_cb(TB_CLOSE_ON))
+        cv2.createTrackbar(TB_CLOSE_K,    WINDOW_CTRL, LEGACY_DEFAULTS[TB_CLOSE_K],    5,    self.make_cb(TB_CLOSE_K))
+        cv2.createTrackbar(TB_ALPHA,      WINDOW_CTRL, LEGACY_DEFAULTS[TB_ALPHA],      100,  self.make_cb(TB_ALPHA))
+        cv2.createTrackbar(TB_BRUSH,      WINDOW_CTRL, LEGACY_DEFAULTS[TB_BRUSH],      80,   self.make_cb(TB_BRUSH))
+        cv2.createTrackbar(TB_EDIT_MODE,  WINDOW_CTRL, LEGACY_DEFAULTS[TB_EDIT_MODE],  1,    self.make_cb(TB_EDIT_MODE))
+        cv2.createTrackbar(TB_ZOOM_MODE,  WINDOW_CTRL, LEGACY_DEFAULTS[TB_ZOOM_MODE],  1,    self.make_cb(TB_ZOOM_MODE))
 
-        cv2.createTrackbar("Use Model (0/1)",            WINDOW_CTRL, 0,   1,    self.make_cb("Use Model (0/1)"))
-        cv2.createTrackbar("Model Type (0=HC,1=UNet++)", WINDOW_CTRL, 1,   1,    self.make_cb("Model Type (0=HC,1=UNet++)"))
-        cv2.createTrackbar("Model Thr *1000",            WINDOW_CTRL, 500, 1000, self.make_cb("Model Thr *1000"))
+        cv2.createTrackbar(TB_USE_MODEL,  WINDOW_CTRL, LEGACY_DEFAULTS[TB_USE_MODEL],  1,    self.make_cb(TB_USE_MODEL))
+        cv2.createTrackbar(TB_MODEL_TYPE, WINDOW_CTRL, LEGACY_DEFAULTS[TB_MODEL_TYPE], 1,    self.make_cb(TB_MODEL_TYPE))
+        cv2.createTrackbar(TB_MODEL_THR,  WINDOW_CTRL, LEGACY_DEFAULTS[TB_MODEL_THR],  1000, self.make_cb(TB_MODEL_THR))
 
-        cv2.createTrackbar("Skel enable (0/1)", WINDOW_CTRL, 0, 1, self.make_cb("Skel enable (0/1)"))
-        cv2.createTrackbar("Skel thickness (1~5)", WINDOW_CTRL, 1, 5, self.make_cb("Skel thickness"))
-
-        cv2.createTrackbar("View scale % (25~200)",      WINDOW_CTRL, int(VIEW_SCALE*100), 200, self.make_cb("View scale %"))
+        cv2.createTrackbar(TB_SKEL_ON,    WINDOW_CTRL, LEGACY_DEFAULTS[TB_SKEL_ON],    1,    self.make_cb(TB_SKEL_ON))
+        cv2.createTrackbar(TB_SKEL_THICK, WINDOW_CTRL, LEGACY_DEFAULTS[TB_SKEL_THICK], 5,    self.make_cb(TB_SKEL_THICK))
+        cv2.createTrackbar(TB_HELP_ITEM,  WINDOW_CTRL, LEGACY_DEFAULTS[TB_HELP_ITEM],  len(HELP_ITEMS) - 1, self.make_cb(TB_HELP_ITEM))
 
         cv2.setMouseCallback(WINDOW_MAIN, self.on_mouse_main)
+        cv2.setMouseCallback(WINDOW_INFO, self.on_mouse_info)
 
     def get_params(self):
-        sigma = max(1, cv2.getTrackbarPos("SigmaMax (1..8)", WINDOW_CTRL))
-        black = bool(cv2.getTrackbarPos("BlackRidges (0/1)", WINDOW_CTRL))
-        use_clahe = bool(cv2.getTrackbarPos("CLAHE enable (0/1)", WINDOW_CTRL))
-        clip = max(1, cv2.getTrackbarPos("CLAHE clip *10 (0.1~10.0)", WINDOW_CTRL)) / 10.0
-        tile = 2*max(1, cv2.getTrackbarPos("CLAHE tile k (4,6,...)", WINDOW_CTRL)) + 2
+        sigma = max(1, cv2.getTrackbarPos(TB_SIGMA, WINDOW_CTRL))
+        black = bool(cv2.getTrackbarPos(TB_BLACK, WINDOW_CTRL))
+        use_clahe = bool(cv2.getTrackbarPos(TB_CLAHE_ON, WINDOW_CTRL))
+        clip = max(1, cv2.getTrackbarPos(TB_CLAHE_CLIP, WINDOW_CTRL)) / 10.0
+        tile = 2*max(1, cv2.getTrackbarPos(TB_CLAHE_TILE, WINDOW_CTRL)) + 2
 
-        low  = cv2.getTrackbarPos("Hysteresis Low *1000", WINDOW_CTRL)  / 1000.0
-        high = cv2.getTrackbarPos("Hysteresis High *1000", WINDOW_CTRL) / 1000.0
+        low  = cv2.getTrackbarPos(TB_HYST_LOW, WINDOW_CTRL)  / 1000.0
+        high = cv2.getTrackbarPos(TB_HYST_HIGH, WINDOW_CTRL) / 1000.0
         if high < low: high = min(1.0, low + 0.01)
 
-        min_size  = cv2.getTrackbarPos("MinSize (remove_small_objects)", WINDOW_CTRL)
-        use_close = bool(cv2.getTrackbarPos("Morph Close enable (0/1)", WINDOW_CTRL))
-        close_k   = 2*max(1, cv2.getTrackbarPos("CloseK (odd 3..11)", WINDOW_CTRL)) + 1
-        alpha     = cv2.getTrackbarPos("Overlay alpha (0..100)", WINDOW_CTRL) / 100.0
-        brush     = max(1, cv2.getTrackbarPos("Brush size px", WINDOW_CTRL))
-        edit_mode = cv2.getTrackbarPos("Edit Mode (0=Erase,1=Draw)", WINDOW_CTRL)
+        min_size  = cv2.getTrackbarPos(TB_MIN_SIZE, WINDOW_CTRL)
+        use_close = bool(cv2.getTrackbarPos(TB_CLOSE_ON, WINDOW_CTRL))
+        close_k   = 2*max(1, cv2.getTrackbarPos(TB_CLOSE_K, WINDOW_CTRL)) + 1
+        alpha     = cv2.getTrackbarPos(TB_ALPHA, WINDOW_CTRL) / 100.0
+        brush     = max(1, cv2.getTrackbarPos(TB_BRUSH, WINDOW_CTRL))
+        edit_mode = cv2.getTrackbarPos(TB_EDIT_MODE, WINDOW_CTRL)
+        zoom_pan_mode = bool(cv2.getTrackbarPos(TB_ZOOM_MODE, WINDOW_CTRL))
 
-        use_model = bool(cv2.getTrackbarPos("Use Model (0/1)", WINDOW_CTRL))
-        mthr      = cv2.getTrackbarPos("Model Thr *1000", WINDOW_CTRL) / 1000.0
+        use_model = bool(cv2.getTrackbarPos(TB_USE_MODEL, WINDOW_CTRL))
+        mthr      = cv2.getTrackbarPos(TB_MODEL_THR, WINDOW_CTRL) / 1000.0
 
-        vs = max(25, cv2.getTrackbarPos("View scale % (25~200)", WINDOW_CTRL))
-        view_scale = vs / 100.0
-        
-
-        use_skel = bool(cv2.getTrackbarPos("Skel enable (0/1)", WINDOW_CTRL))
-        skel_thick = cv2.getTrackbarPos("Skel thickness (1~5)", WINDOW_CTRL)
+        use_skel = bool(cv2.getTrackbarPos(TB_SKEL_ON, WINDOW_CTRL))
+        skel_thick = cv2.getTrackbarPos(TB_SKEL_THICK, WINDOW_CTRL)
         skel_thick = max(1, skel_thick)
 
-        model_type = cv2.getTrackbarPos("Model Type (0=HC,1=UNet++)", WINDOW_CTRL)
+        model_type = cv2.getTrackbarPos(TB_MODEL_TYPE, WINDOW_CTRL)
+        help_item = cv2.getTrackbarPos(TB_HELP_ITEM, WINDOW_CTRL)
         return dict(
             sigma=sigma, black=black, use_clahe=use_clahe, clip=clip, tile=tile,
             low=low, high=high, min_size=min_size, use_close=use_close,
             close_k=close_k, alpha=alpha, brush=brush,
-            edit_mode=edit_mode, use_model=use_model, model_type=model_type, mthr=mthr, view_scale=view_scale,
-            use_skel=use_skel, skel_thick=skel_thick
+            edit_mode=edit_mode, zoom_pan_mode=zoom_pan_mode,
+            use_model=use_model, model_type=model_type, mthr=mthr, view_scale=self.view_scale,
+            use_skel=use_skel, skel_thick=skel_thick, help_item=help_item
         )
 
     # ---------- 로드 ----------
@@ -590,6 +684,12 @@ class App:
         self._stroke_tmp = None
         self._erase_before = None
         self._draw_before = None
+        self._last_paint_pos = None
+        self.reset_view_to_fit()
+        self._panning = False
+        self._pan_start_mouse = None
+        self._pan_start_offset = None
+        self._last_scaled_panel_shape = None
 
         # 캐시 초기화
         self.gray_proc_cache = None; self.gray_proc_key = None
@@ -603,6 +703,17 @@ class App:
                 f"in: {os.path.basename(self.files[self.idx])}  →  out: {os.path.basename(self.out_path_current())}")
         except Exception:
             pass
+
+    def reset_view_to_fit(self):
+        if self.W <= 0 or self.H <= 0:
+            self.view_scale = VIEW_SCALE
+        else:
+            panel_w = self.W * 2
+            panel_h = self.H
+            self.view_scale = min(MAIN_VIEW_W / panel_w, MAIN_VIEW_H / panel_h)
+            self.view_scale = float(np.clip(self.view_scale, 0.25, 8.0))
+        self.pan_x = 0
+        self.pan_y = 0
 
     # ---------- 저장 ----------
     def save_final(self):
@@ -770,30 +881,117 @@ class App:
         return np.where(final > 0, 255, 0).astype(np.uint8)
 
     # ---------- 그리기 ----------
+    def draw_text(self, draw, xy, text, font, fill=(30, 30, 30)):
+        if draw is not None:
+            draw.text(xy, text, font=font, fill=fill)
+
+    def wrap_text(self, text, font, max_width):
+        if ImageDraw is None or font is None:
+            return [text]
+        probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
+        lines, cur = [], ""
+        for ch in text:
+            candidate = cur + ch
+            if probe.textlength(candidate, font=font) <= max_width or not cur:
+                cur = candidate
+            else:
+                lines.append(cur)
+                cur = ch
+        if cur:
+            lines.append(cur)
+        return lines
+
     def render_info_window(self, p):
-        canvas = np.full((360, 520, 3), 245, dtype=np.uint8)
+        w, h = 780, 520
         mode_name = "DRAW white crack" if p["edit_mode"] == 1 else "ERASE / RESTORE"
         model_name = "HC-Unet++" if p["model_type"] == 0 else "UNet++"
         model_state = "ON" if p["use_model"] else "OFF"
         skel_state = "ON" if p["use_skel"] else "OFF"
+        zoom_state = "ON" if p["zoom_pan_mode"] else "OFF"
+        selected = int(np.clip(p.get("help_item", 0), 0, len(HELP_ITEMS) - 1))
+        self._help_hit_rows = []
 
-        lines = [
-            ("Current", 24, 0.75, (30, 30, 30), 2),
-            (f"Edit Mode : {mode_name}", 58, 0.65, (0, 90, 180) if p["edit_mode"] == 1 else (0, 120, 80), 2),
-            (f"Brush     : {p['brush']} px", 88, 0.58, (40, 40, 40), 1),
-            (f"Model     : {model_state} / {model_name} / thr {p['mthr']:.3f}", 118, 0.55, (40, 40, 40), 1),
-            (f"Skeleton  : {skel_state} / thickness {p['skel_thick']}", 146, 0.55, (40, 40, 40), 1),
-            ("Mouse", 188, 0.68, (30, 30, 30), 2),
-            ("Erase mode: Left erase, Right restore", 218, 0.52, (40, 40, 40), 1),
-            ("Draw mode : Left draw white crack, Right remove drawing", 244, 0.52, (40, 40, 40), 1),
-            ("Keys", 286, 0.68, (30, 30, 30), 2),
-            ("D mode  M model  S save  Z undo  C clear edits", 316, 0.52, (40, 40, 40), 1),
-            ("N next  P prev  H help  Q/Esc quit", 342, 0.52, (40, 40, 40), 1),
-        ]
-        for text, y, scale, color_bgr, thickness in lines:
-            cv2.putText(canvas, text, (18, y), cv2.FONT_HERSHEY_SIMPLEX,
-                        scale, color_bgr, thickness, cv2.LINE_AA)
+        if Image is not None:
+            img = Image.new("RGB", (w, h), (246, 246, 246))
+            draw = ImageDraw.Draw(img)
+            self.draw_text(draw, (18, 14), "상태 / 도움말", self.font_title, (20, 20, 20))
+            self.draw_text(draw, (18, 48), f"편집: {mode_name}   브러쉬: {p['brush']} px", self.font_text)
+            self.draw_text(draw, (18, 74), f"모델: {model_state} / {model_name} / 임계값 {p['mthr']:.3f}", self.font_text)
+            self.draw_text(draw, (18, 100), f"스켈레톤: {skel_state} / 두께 {p['skel_thick']}   줌: {zoom_state} / {self.view_scale*100:.0f}%", self.font_text)
+            self.draw_text(draw, (18, 132), "왼쪽 번호를 클릭하거나 컨트롤 패널의 '20 Help item'을 조절하세요.", self.font_small, (70, 70, 70))
+
+            left_x, row_y, row_h = 18, 166, 22
+            for idx, (name, _) in enumerate(HELP_ITEMS):
+                y = row_y + idx * row_h
+                if y > h - row_h:
+                    break
+                self._help_hit_rows.append((idx, y, y + row_h))
+                fill = (224, 238, 255) if idx == selected else (246, 246, 246)
+                draw.rectangle((left_x - 4, y - 2, 260, y + row_h - 2), fill=fill)
+                self.draw_text(draw, (left_x, y), f"{idx:02d}. {name}", self.font_small, (15, 80, 150) if idx == selected else (40, 40, 40))
+
+            title, desc = HELP_ITEMS[selected]
+            draw.rectangle((285, 160, w - 18, h - 18), outline=(210, 210, 210), width=1)
+            self.draw_text(draw, (305, 178), f"{selected:02d}. {title}", self.font_title, (15, 80, 150))
+            y = 220
+            for line in self.wrap_text(desc, self.font_text, 430):
+                self.draw_text(draw, (305, y), line, self.font_text, (35, 35, 35))
+                y += 28
+            shortcuts = [
+                "S 저장 후 다음 / Z 되돌리기 / C 수동 편집 초기화",
+                "D 그리기·지우기 전환 / V 줌·이동 전환 / M 모델 전환",
+                "줌·이동 ON: 휠 확대·축소, 오른쪽 드래그 화면 이동",
+            ]
+            y = max(y + 18, 350)
+            for line in shortcuts:
+                self.draw_text(draw, (305, y), line, self.font_small, (85, 85, 85))
+                y += 24
+            canvas = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+        else:
+            canvas = np.full((h, w, 3), 245, dtype=np.uint8)
+            cv2.putText(canvas, f"Help item: {selected:02d} {HELP_ITEMS[selected][0]}", (18, 36),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (30, 30, 30), 2, cv2.LINE_AA)
+            cv2.putText(canvas, HELP_ITEMS[selected][1][:80], (18, 72),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (40, 40, 40), 1, cv2.LINE_AA)
         cv2.imshow(WINDOW_INFO, canvas)
+
+    def clamp_pan(self, scaled_w=None, scaled_h=None):
+        if scaled_w is None or scaled_h is None:
+            if self._last_scaled_panel_shape is None:
+                return
+            scaled_h, scaled_w = self._last_scaled_panel_shape[:2]
+        self.pan_x = int(np.clip(self.pan_x, 0, max(0, scaled_w - MAIN_VIEW_W)))
+        self.pan_y = int(np.clip(self.pan_y, 0, max(0, scaled_h - MAIN_VIEW_H)))
+
+    def make_viewport(self, panel):
+        zoom = float(np.clip(self.view_scale, 0.25, 8.0))
+        scaled_w = max(1, int(round(panel.shape[1] * zoom)))
+        scaled_h = max(1, int(round(panel.shape[0] * zoom)))
+        interp = cv2.INTER_CUBIC if zoom >= 1.0 else cv2.INTER_AREA
+        scaled = cv2.resize(panel, (scaled_w, scaled_h), interpolation=interp)
+        self._last_scaled_panel_shape = scaled.shape
+        self.clamp_pan(scaled_w, scaled_h)
+
+        viewport = np.zeros((MAIN_VIEW_H, MAIN_VIEW_W, 3), dtype=np.uint8)
+        x0, y0 = self.pan_x, self.pan_y
+        x1 = min(x0 + MAIN_VIEW_W, scaled_w)
+        y1 = min(y0 + MAIN_VIEW_H, scaled_h)
+        crop = scaled[y0:y1, x0:x1]
+        viewport[:crop.shape[0], :crop.shape[1]] = crop
+        return viewport
+
+    def zoom_at(self, screen_x, screen_y, factor):
+        old_zoom = float(self.view_scale)
+        new_zoom = float(np.clip(old_zoom * factor, 0.25, 8.0))
+        if abs(new_zoom - old_zoom) < 1e-6:
+            return
+
+        panel_x = (self.pan_x + screen_x) / old_zoom
+        panel_y = (self.pan_y + screen_y) / old_zoom
+        self.view_scale = new_zoom
+        self.pan_x = int(round(panel_x * new_zoom - screen_x))
+        self.pan_y = int(round(panel_y * new_zoom - screen_y))
+        self.clamp_pan()
 
     def draw(self):
         if not (0 <= self.idx < len(self.files)):
@@ -808,7 +1006,6 @@ class App:
             return
 
         p = self.get_params()
-        self.view_scale = p["view_scale"]
         self.render_info_window(p)
 
         gray_proc = self.compute_gray_proc_cached(p)
@@ -817,20 +1014,40 @@ class App:
         base_combined = self.apply_skeleton(base_combined, p)
         final = self.compose_final(base_combined)
 
-        left  = bgr_scaled(self.bgr, self.view_scale)
-        right = overlay_mask_on_bgr(self.bgr, final, alpha=p["alpha"], scale=self.view_scale)
+        left  = self.bgr
+        right = overlay_mask_on_bgr(self.bgr, final, alpha=p["alpha"], scale=1.0)
 
         panel = np.hstack([left, right])
-        cv2.imshow(WINDOW_MAIN, panel)
+        cv2.imshow(WINDOW_MAIN, self.make_viewport(panel))
 
     # ---------- 좌표/편집 ----------
-    def mouse_to_image_xy(self, x, y, rect):
-        rx, ry, rw, rh = rect
-        if not (rx <= x < rx+rw and ry <= y < ry+rh): return None
-        lx = x - rx; ly = y - ry
-        ix = int(lx / self.view_scale); iy = int(ly / self.view_scale)
-        if 0 <= ix < self.W and 0 <= iy < self.H: return (ix, iy)
+    def mouse_to_image_xy(self, x, y):
+        panel_x = (self.pan_x + x) / max(self.view_scale, 1e-6)
+        panel_y = (self.pan_y + y) / max(self.view_scale, 1e-6)
+        if not (0 <= panel_y < self.H and 0 <= panel_x < self.W * 2):
+            return None
+        ix = int(panel_x % self.W)
+        iy = int(panel_y)
+        if 0 <= ix < self.W and 0 <= iy < self.H:
+            return (ix, iy)
         return None
+
+    def wheel_delta(self, flags):
+        try:
+            return cv2.getMouseWheelDelta(flags)
+        except AttributeError:
+            return 1 if flags > 0 else -1
+
+    def on_mouse_info(self, event, mx, my, flags, param):
+        if event != cv2.EVENT_LBUTTONDOWN:
+            return
+        for idx, y0, y1 in self._help_hit_rows:
+            if y0 <= my <= y1:
+                try:
+                    cv2.setTrackbarPos(TB_HELP_ITEM, WINDOW_CTRL, idx)
+                except Exception:
+                    pass
+                return
 
     def paint_stroke(self, mask, prev_pos, pos, brush, value):
         brush = max(1, int(brush))
@@ -846,9 +1063,30 @@ class App:
 
     def on_mouse_main(self, event, mx, my, flags, param):
         p = self.get_params(); brush = p["brush"]
-        disp_w = int(self.W * self.view_scale)
-        left_rect  = (0, 0, disp_w, int(self.H * self.view_scale))
-        right_rect = (disp_w, 0, disp_w, int(self.H * self.view_scale))
+
+        if event == getattr(cv2, "EVENT_MOUSEWHEEL", 10) and p["zoom_pan_mode"]:
+            factor = 1.15 if self.wheel_delta(flags) > 0 else 1.0 / 1.15
+            self.zoom_at(mx, my, factor)
+            return
+
+        if p["zoom_pan_mode"]:
+            if event == cv2.EVENT_RBUTTONDOWN:
+                self._panning = True
+                self._pan_start_mouse = (mx, my)
+                self._pan_start_offset = (self.pan_x, self.pan_y)
+                return
+            if event == cv2.EVENT_MOUSEMOVE and self._panning and (flags & cv2.EVENT_FLAG_RBUTTON):
+                sx, sy = self._pan_start_mouse
+                ox, oy = self._pan_start_offset
+                self.pan_x = ox - (mx - sx)
+                self.pan_y = oy - (my - sy)
+                self.clamp_pan()
+                return
+            if event == cv2.EVENT_RBUTTONUP:
+                self._panning = False
+                self._pan_start_mouse = None
+                self._pan_start_offset = None
+                return
 
         if event in (cv2.EVENT_LBUTTONDOWN, cv2.EVENT_RBUTTONDOWN):
             self._stroke_tmp = np.zeros((self.H, self.W), np.uint8)
@@ -857,7 +1095,7 @@ class App:
             self._last_paint_pos = None
 
         if (event == cv2.EVENT_LBUTTONDOWN) or (event == cv2.EVENT_MOUSEMOVE and (flags & cv2.EVENT_FLAG_LBUTTON)):
-            pos = self.mouse_to_image_xy(mx, my, left_rect) or self.mouse_to_image_xy(mx, my, right_rect)
+            pos = self.mouse_to_image_xy(mx, my)
             if pos is not None:
                 prev = self._last_paint_pos
                 self.paint_stroke(self._stroke_tmp, prev, pos, brush, 255)
@@ -870,7 +1108,7 @@ class App:
                 self._last_paint_pos = pos
 
         if (event == cv2.EVENT_RBUTTONDOWN) or (event == cv2.EVENT_MOUSEMOVE and (flags & cv2.EVENT_FLAG_RBUTTON)):
-            pos = self.mouse_to_image_xy(mx, my, left_rect) or self.mouse_to_image_xy(mx, my, right_rect)
+            pos = self.mouse_to_image_xy(mx, my)
             if pos is not None:
                 prev = self._last_paint_pos
                 self.paint_stroke(self._stroke_tmp, prev, pos, brush, 255)
@@ -905,8 +1143,9 @@ class App:
         print("[*] Controls:")
         print("  Mouse: Erase mode → L-drag=지움(erase), R-drag=복원(restore)")
         print("         Draw mode  → L-drag=흰색 크랙 추가, R-drag=직접 그린 부분 제거")
+        print("         Zoom/Pan   → Wheel=확대/축소, R-drag=화면 이동")
         print("  Keys : S=Save&Next  N=Next(unlabeled)  P=Prev(unlabeled)  Z=Undo  C=Clear manual edits")
-        print("         M=Toggle Model  D=Toggle Draw/Erase  H=Help  Q/Esc=Quit")
+        print("         M=Toggle Model  D=Toggle Draw/Erase  V=Toggle Zoom/Pan  H=Help  Q/Esc=Quit")
         while True:
             self.draw()
             k = cv2.waitKey(16) & 0xFF
@@ -937,11 +1176,14 @@ class App:
                 self.undo_stack.clear()
                 print("[*] Manual edit masks cleared.")
             elif k == ord('m'):
-                cur = cv2.getTrackbarPos("Use Model (0/1)", WINDOW_CTRL)
-                cv2.setTrackbarPos("Use Model (0/1)", WINDOW_CTRL, 0 if cur==1 else 1)
+                cur = cv2.getTrackbarPos(TB_USE_MODEL, WINDOW_CTRL)
+                cv2.setTrackbarPos(TB_USE_MODEL, WINDOW_CTRL, 0 if cur==1 else 1)
             elif k == ord('d'):
-                cur = cv2.getTrackbarPos("Edit Mode (0=Erase,1=Draw)", WINDOW_CTRL)
-                cv2.setTrackbarPos("Edit Mode (0=Erase,1=Draw)", WINDOW_CTRL, 0 if cur==1 else 1)
+                cur = cv2.getTrackbarPos(TB_EDIT_MODE, WINDOW_CTRL)
+                cv2.setTrackbarPos(TB_EDIT_MODE, WINDOW_CTRL, 0 if cur==1 else 1)
+            elif k == ord('v'):
+                cur = cv2.getTrackbarPos(TB_ZOOM_MODE, WINDOW_CTRL)
+                cv2.setTrackbarPos(TB_ZOOM_MODE, WINDOW_CTRL, 0 if cur==1 else 1)
             elif k == ord('h'):
                 self.show_help()
 
