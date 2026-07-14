@@ -31,12 +31,6 @@ This project combines classical image processing and deep learning model overlay
 └── model/                                          # Local model weights, not tracked
 ```
 
-Optional training scripts can be added to the repository if needed:
-
-```text
-Unet_pp_train.py
-edited_HC_Unet_pp_train.py
-```
 
 ## Installation
 
