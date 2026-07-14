@@ -33,7 +33,6 @@ DST_DIR = r"C:\Users\이채영\Downloads\crack_upgrade_20260709\crack_masks"
 
 MODEL_PATH_HC = r"C:\Users\이채영\Downloads\crack_upgrade_20260709\model\HC_unetpp_Quebec117_50"  # HC-Unet++ 가중치 경로로 설정
 MODEL_PATH_UNETPP = r"C:\Users\이채영\Downloads\crack_upgrade_20260709\model\unetpp_204_crack_epoch_300.pth"  # UNet++ 가중치 경로
-#MODEL_PATH_HC = r"C:\Users\dromii\Downloads\1028_hc_unetpp_final_epoch_200.pth"
 
 WINDOW_SIZE = (512, 512)
 STRIDE = (WINDOW_SIZE[0] // 2, WINDOW_SIZE[1] // 2)
