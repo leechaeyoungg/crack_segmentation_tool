@@ -46,7 +46,7 @@ For GPU inference or training, install the PyTorch build that matches your CUDA 
 
 1. Place source images in `crack_images/`.
 2. Place model weights in `model/`.
-3. Check and update paths near the top of `sato_clahe_model_edit_add_skeleton_20260710.py`:
+3. Check and update paths near the top of `crack_labeling_tool.py`:
 
 ```python
 SRC_DIR = r"...\crack_images"
@@ -58,7 +58,7 @@ MODEL_PATH_UNETPP = r"...\model\unetpp_204_crack_epoch_300.pth"
 4. Run the labeling tool:
 
 ```bash
-python sato_clahe_model_edit_add_skeleton_20260710.py
+python crack_labeling_tool.py
 ```
 
 ## Main Controls
