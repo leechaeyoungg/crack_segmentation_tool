@@ -16,6 +16,8 @@ This project combines classical image processing and deep learning model overlay
   - Brush size control, including 1-pixel line drawing
 - Optional skeletonization with thickness control
 - Resume workflow from the latest saved mask
+- Load an existing mask when moving backward for visual review and correction
+- Overwrite a reviewed mask after manual correction
 - Final output as binary grayscale PNG masks
   - `0`: background
   - `255`: crack
@@ -24,7 +26,8 @@ This project combines classical image processing and deep learning model overlay
 
 ```text
 .
-├── sato_clahe_model_edit_add_skeleton_20260710.py  # Main labeling/editing GUI
+├── crack_labeling_tool.py                          # Main labeling/editing GUI
+├── sato_clahe_model_edit_add_skeleton_20260710.py  # Related segmentation script
 ├── requirements.txt                                # Python dependencies
 ├── crack_images/                                   # Local input images, not tracked
 ├── crack_masks/                                    # Local output masks, not tracked
@@ -44,13 +47,13 @@ For GPU inference or training, install the PyTorch build that matches your CUDA 
 
 ## Usage
 
-1. Place source images in `crack_images/`.
+1. Place source images in the configured image directory.
 2. Place model weights in `model/`.
 3. Check and update paths near the top of `crack_labeling_tool.py`:
 
 ```python
-SRC_DIR = r"...\crack_images"
-DST_DIR = r"...\crack_masks"
+SRC_DIR = r"...\crack_images1"
+DST_DIR = r"...\crack_masks1"
 MODEL_PATH_HC = r"...\model\HC_unetpp_Quebec117_50"
 MODEL_PATH_UNETPP = r"...\model\unetpp_204_crack_epoch_300.pth"
 ```
@@ -61,11 +64,15 @@ MODEL_PATH_UNETPP = r"...\model\unetpp_204_crack_epoch_300.pth"
 python crack_labeling_tool.py
 ```
 
+At startup, the tool skips images that already have a same-stem PNG mask and opens the first unlabeled image. For example, `sample.jpg` is treated as labeled when `sample.png` exists in `DST_DIR`.
+
+To review or correct an existing label, press `P`. The stored mask for the previous image is loaded and shown over the original image in the right-hand preview. Manual erase/draw operations are applied on top of that stored mask. Pressing `S` overwrites the same PNG with the corrected binary mask, then resumes at the next unlabeled image.
+
 ## Main Controls
 
 - `S`: Save current mask and move to next unlabeled image
 - `N`: Move to next unlabeled image
-- `P`: Move to previous unlabeled image
+- `P`: Move to the previous image; load its existing mask when available
 - `Z`: Undo last manual edit
 - `C`: Clear manual edit masks
 - `M`: Toggle model overlay
@@ -81,6 +88,12 @@ Mouse behavior depends on edit mode:
 - Draw mode
   - Left drag: draw white crack pixels
   - Right drag: remove manually drawn pixels
+
+When reviewing an existing mask:
+
+- `Z` undoes the last manual correction.
+- `C` clears corrections made during the current review and returns the preview to the loaded mask.
+- `S` overwrites the existing mask with the corrected result and moves to the next unlabeled image.
 
 ## Mask Format
 

@@ -28,8 +28,12 @@ except ImportError:
 # ============================
 # 사용자 설정
 # ============================
-SRC_DIR = r"C:\Users\이채영\Downloads\crack_upgrade_20260709\crack_images"
-DST_DIR = r"C:\Users\이채영\Downloads\crack_upgrade_20260709\crack_masks"
+SRC_DIR = r"C:\Users\이채영\Downloads\crack_upgrade_20260709\crack_images1"
+DST_DIR = r"C:\Users\이채영\Downloads\crack_upgrade_20260709\crack_masks1"
+
+# 기존처럼 마스크가 없는 파일부터 시작합니다.
+# P로 이전 파일에 돌아갈 때는 저장된 마스크를 불러와 오버레이합니다.
+REVIEW_EXISTING_MASKS = False
 
 MODEL_PATH_HC = r"C:\Users\이채영\Downloads\crack_upgrade_20260709\model\HC_unetpp_Quebec117_50"  # HC-Unet++ 가중치 경로로 설정
 MODEL_PATH_UNETPP = r"C:\Users\이채영\Downloads\crack_upgrade_20260709\model\unetpp_204_crack_epoch_300.pth"  # UNet++ 가중치 경로
@@ -473,6 +477,8 @@ class App:
         # 편집 마스크: draw_mask는 흰색 크랙 추가, erase_mask는 최종 마스크 제거
         self.erase_mask = None
         self.draw_mask = None
+        self.review_mask = None
+        self.viewing_existing_mask = False
         self.undo_stack = []
         self._stroke_tmp = None
         self._erase_before = None
@@ -508,7 +514,8 @@ class App:
 
         # UI
         self.setup_windows()
-        self.jump_to_first_unlabeled()  # ← 내부 로직을 '마지막 저장 이후'로 변경
+        if not REVIEW_EXISTING_MASKS:
+            self.jump_to_first_unlabeled()  # ← 내부 로직을 '마지막 저장 이후'로 변경
         if 0 <= self.idx < len(self.files): self.load(self.files[self.idx])
 
     # ---------- 경로/상태 ----------
@@ -550,8 +557,13 @@ class App:
     def advance_to_next_unlabeled(self, direction=+1, include_current=False):
         if not self.files: return False
         i = self.idx if include_current else self.idx + direction
-        while 0 <= i < len(self.files) and self.mask_exists_for(i): i += direction
-        if 0 <= i < len(self.files): self.idx = i; self.load(self.files[self.idx]); return True
+        if direction > 0 and not REVIEW_EXISTING_MASKS:
+            while 0 <= i < len(self.files) and self.mask_exists_for(i): i += direction
+        if 0 <= i < len(self.files):
+            self.idx = i
+            self.viewing_existing_mask = direction < 0 and self.mask_exists_for(i)
+            self.load(self.files[self.idx])
+            return True
         print("[*] 더 이상 진행할 미라벨링 이미지가 없습니다."); return False
 
     # ---------- 상태바/오버레이 ----------
@@ -679,6 +691,20 @@ class App:
         self.H, self.W = self.gray.shape[:2]
         self.erase_mask = np.zeros((self.H, self.W), np.uint8)
         self.draw_mask = np.zeros((self.H, self.W), np.uint8)
+        self.review_mask = None
+        if REVIEW_EXISTING_MASKS or self.viewing_existing_mask:
+            mask_path = self.out_path_current()
+            if os.path.exists(mask_path):
+                review_mask = cv2.imdecode(np.fromfile(mask_path, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+                if review_mask is None:
+                    print(f"[!] 마스크를 읽을 수 없습니다: {mask_path}")
+                else:
+                    if review_mask.shape != (self.H, self.W):
+                        print(f"[!] 크기 불일치, 화면 표시용으로 리사이즈: {review_mask.shape} -> {(self.H, self.W)}")
+                        review_mask = cv2.resize(review_mask, (self.W, self.H), interpolation=cv2.INTER_NEAREST)
+                    self.review_mask = np.where(review_mask > 0, 255, 0).astype(np.uint8)
+            else:
+                print(f"[!] 대응 마스크 없음: {mask_path}")
         self.undo_stack.clear()
         self._stroke_tmp = None
         self._erase_before = None
@@ -717,11 +743,14 @@ class App:
     # ---------- 저장 ----------
     def save_final(self):
         p = self.get_params()
-        gray_proc = self.compute_gray_proc_cached(p)
-        _, base_sato = self.compute_sato_cached(p, gray_proc)
-        base_combined = self.combine_with_model(p, base_sato)
-        base_combined = self.apply_skeleton(base_combined, p)
-        final = self.compose_final(base_combined)
+        if self.viewing_existing_mask and self.review_mask is not None:
+            final = self.compose_final(self.review_mask)
+        else:
+            gray_proc = self.compute_gray_proc_cached(p)
+            _, base_sato = self.compute_sato_cached(p, gray_proc)
+            base_combined = self.combine_with_model(p, base_sato)
+            base_combined = self.apply_skeleton(base_combined, p)
+            final = self.compose_final(base_combined)
 
 
         out_path = self.out_path_current()
@@ -997,7 +1026,7 @@ class App:
             print("[*] 작업을 종료합니다. (모든 이미지 완료)")
             cv2.destroyAllWindows(); raise SystemExit
 
-        if self.mask_exists_for(self.idx):
+        if not REVIEW_EXISTING_MASKS and not self.viewing_existing_mask and self.mask_exists_for(self.idx):
             moved = self.advance_to_next_unlabeled(direction=+1, include_current=True)
             if not moved:
                 print("[*] 작업을 종료합니다. (모든 이미지 완료)")
@@ -1007,11 +1036,15 @@ class App:
         p = self.get_params()
         self.render_info_window(p)
 
-        gray_proc = self.compute_gray_proc_cached(p)
-        _, base_sato = self.compute_sato_cached(p, gray_proc)
-        base_combined = self.combine_with_model(p, base_sato)
-        base_combined = self.apply_skeleton(base_combined, p)
-        final = self.compose_final(base_combined)
+        if REVIEW_EXISTING_MASKS or self.viewing_existing_mask:
+            base_mask = self.review_mask if self.review_mask is not None else np.zeros((self.H, self.W), np.uint8)
+            final = self.compose_final(base_mask)
+        else:
+            gray_proc = self.compute_gray_proc_cached(p)
+            _, base_sato = self.compute_sato_cached(p, gray_proc)
+            base_combined = self.combine_with_model(p, base_sato)
+            base_combined = self.apply_skeleton(base_combined, p)
+            final = self.compose_final(base_combined)
 
         left  = self.bgr
         right = overlay_mask_on_bgr(self.bgr, final, alpha=p["alpha"], scale=1.0)
@@ -1150,7 +1183,12 @@ class App:
             k = cv2.waitKey(16) & 0xFF
             if k in (ord('q'), 27): break
             elif k == ord('s'):
-                if self.mask_exists_for(self.idx):
+                if self.viewing_existing_mask:
+                    if not self.save_final():
+                        continue
+                    self.viewing_existing_mask = False
+                    if not self.advance_to_next_unlabeled(+1): break
+                elif self.mask_exists_for(self.idx):
                     print("[*] 이미 저장된 마스크가 있어 저장을 생략합니다.")
                     if not self.advance_to_next_unlabeled(+1): break
                 else:
@@ -1194,5 +1232,11 @@ class App:
 if __name__ == "__main__":
     files = list_images(SRC_DIR)
     if not files: raise SystemExit("입력 폴더에 이미지가 없습니다.")
+    if REVIEW_EXISTING_MASKS:
+        files = [p for p in files if os.path.exists(
+            os.path.join(DST_DIR, os.path.splitext(os.path.basename(p))[0] + ".png")
+        )]
+        if not files: raise SystemExit("원본 이미지와 파일명이 대응되는 PNG 마스크가 없습니다.")
+        print(f"[*] 기존 마스크 검수 모드: 대응되는 이미지/마스크 {len(files)}쌍")
     app = App(files, DST_DIR)
     app.run()
