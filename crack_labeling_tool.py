@@ -28,8 +28,8 @@ except ImportError:
 # ============================
 # 사용자 설정
 # ============================
-SRC_DIR = r"C:\Users\이채영\Downloads\crack_upgrade_20260709\crack_images1"
-DST_DIR = r"C:\Users\이채영\Downloads\crack_upgrade_20260709\crack_masks1"
+SRC_DIR = r"C:\Users\이채영\Downloads\crack_upgrade_20260709\crack_images3"
+DST_DIR = r"C:\Users\이채영\Downloads\crack_upgrade_20260709\crack_masks3"
 
 # 기존처럼 마스크가 없는 파일부터 시작합니다.
 # P로 이전 파일에 돌아갈 때는 저장된 마스크를 불러와 오버레이합니다.
@@ -479,6 +479,7 @@ class App:
         self.draw_mask = None
         self.review_mask = None
         self.viewing_existing_mask = False
+        self.rebuild_existing_mask = False
         self.undo_stack = []
         self._stroke_tmp = None
         self._erase_before = None
@@ -562,6 +563,7 @@ class App:
         if 0 <= i < len(self.files):
             self.idx = i
             self.viewing_existing_mask = direction < 0 and self.mask_exists_for(i)
+            self.rebuild_existing_mask = False
             self.load(self.files[self.idx])
             return True
         print("[*] 더 이상 진행할 미라벨링 이미지가 없습니다."); return False
@@ -587,7 +589,7 @@ class App:
             "  Mouse: EditMode=Erase → L-drag=지움, R-drag=복원\n"
             "         EditMode=Draw  → L-drag=흰색 크랙 그리기, R-drag=직접 그린 부분 지움\n"
             "         Zoom/Pan ON    → Wheel=확대/축소, R-drag=화면 이동\n"
-            "  Keys : S=Save&Next  N=Next  P=Prev  Z=Undo  C=Clear manual edits\n"
+            "  Keys : S=Save&Next  N=Next  P=Prev  R=Rebuild loaded mask  Z=Undo  C=Clear manual edits\n"
             "         M=Toggle Model  D=Toggle Draw/Erase  V=Toggle Zoom/Pan  H=Help  Q/Esc=Quit\n"
             "Trackbars:\n"
             "  01~19: filter/model/edit controls\n"
@@ -743,7 +745,7 @@ class App:
     # ---------- 저장 ----------
     def save_final(self):
         p = self.get_params()
-        if self.viewing_existing_mask and self.review_mask is not None:
+        if self.viewing_existing_mask and not self.rebuild_existing_mask and self.review_mask is not None:
             final = self.compose_final(self.review_mask)
         else:
             gray_proc = self.compute_gray_proc_cached(p)
@@ -966,7 +968,7 @@ class App:
                 self.draw_text(draw, (305, y), line, self.font_text, (35, 35, 35))
                 y += 28
             shortcuts = [
-                "S 저장 후 다음 / Z 되돌리기 / C 수동 편집 초기화",
+                "S 저장 후 다음 / P 이전 / R 기존 마스크 재생성 / Z 되돌리기 / C 초기화",
                 "D 그리기·지우기 전환 / V 줌·이동 전환 / M 모델 전환",
                 "줌·이동 ON: 휠 확대·축소, 오른쪽 드래그 화면 이동",
             ]
@@ -1036,7 +1038,7 @@ class App:
         p = self.get_params()
         self.render_info_window(p)
 
-        if REVIEW_EXISTING_MASKS or self.viewing_existing_mask:
+        if (REVIEW_EXISTING_MASKS or self.viewing_existing_mask) and not self.rebuild_existing_mask:
             base_mask = self.review_mask if self.review_mask is not None else np.zeros((self.H, self.W), np.uint8)
             final = self.compose_final(base_mask)
         else:
@@ -1176,7 +1178,7 @@ class App:
         print("  Mouse: Erase mode → L-drag=지움(erase), R-drag=복원(restore)")
         print("         Draw mode  → L-drag=흰색 크랙 추가, R-drag=직접 그린 부분 제거")
         print("         Zoom/Pan   → Wheel=확대/축소, R-drag=화면 이동")
-        print("  Keys : S=Save&Next  N=Next(unlabeled)  P=Prev(unlabeled)  Z=Undo  C=Clear manual edits")
+        print("  Keys : S=Save&Next  N=Next(unlabeled)  P=Prev  R=Rebuild loaded mask  Z=Undo  C=Clear manual edits")
         print("         M=Toggle Model  D=Toggle Draw/Erase  V=Toggle Zoom/Pan  H=Help  Q/Esc=Quit")
         while True:
             self.draw()
@@ -1212,6 +1214,16 @@ class App:
                 self.draw_mask[:] = 0
                 self.undo_stack.clear()
                 print("[*] Manual edit masks cleared.")
+            elif k == ord('r'):
+                if self.viewing_existing_mask:
+                    self.rebuild_existing_mask = True
+                    self.erase_mask[:] = 0
+                    self.draw_mask[:] = 0
+                    self.undo_stack.clear()
+                    print("[*] 기존 마스크 초기화 모드: 필터/모델 결과로 다시 생성합니다.")
+                    self.show_status("기존 마스크 초기화: 필터/모델 기능 활성화")
+                else:
+                    self.show_status("R은 P로 기존 마스크를 불러온 경우에만 사용할 수 있습니다.")
             elif k == ord('m'):
                 cur = cv2.getTrackbarPos(TB_USE_MODEL, WINDOW_CTRL)
                 cv2.setTrackbarPos(TB_USE_MODEL, WINDOW_CTRL, 0 if cur==1 else 1)

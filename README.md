@@ -73,6 +73,7 @@ To review or correct an existing label, press `P`. The stored mask for the previ
 - `S`: Save current mask and move to next unlabeled image
 - `N`: Move to next unlabeled image
 - `P`: Move to the previous image; load its existing mask when available
+- `R`: Rebuild a loaded existing mask from the current filter/model settings
 - `Z`: Undo last manual edit
 - `C`: Clear manual edit masks
 - `M`: Toggle model overlay
@@ -93,6 +94,7 @@ When reviewing an existing mask:
 
 - `Z` undoes the last manual correction.
 - `C` clears corrections made during the current review and returns the preview to the loaded mask.
+- `R` initializes the loaded mask for rebuilding. The stored mask is removed from the preview, Sato/model controls become active again, and manual edits are cleared.
 - `S` overwrites the existing mask with the corrected result and moves to the next unlabeled image.
 
 ## Mask Format
